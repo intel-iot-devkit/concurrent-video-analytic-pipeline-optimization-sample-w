@@ -1,0 +1,7 @@
+-i::h264 content\2.h264 -dc::rgb4 -join -hw_d3d11 -async 4  -timeout 3600 -o::sink -vpp_comp_dst_x 0 -vpp_comp_dst_y 0 -vpp_comp_dst_w 960 -vpp_comp_dst_h 540 -ext_allocator -infer::hp model
+-i::h264 content\2.h264 -dc::rgb4 -join -hw_d3d11 -async 4  -timeout 3600 -o::sink -vpp_comp_dst_x 960 -vpp_comp_dst_y 0 -vpp_comp_dst_w 960 -vpp_comp_dst_h 540 -ext_allocator -infer::hp model
+-i::h264 content\2.h264 -dc::rgb4 -join -hw_d3d11 -async 4  -timeout 3600 -o::sink -vpp_comp_dst_x 0 -vpp_comp_dst_y 540 -vpp_comp_dst_w 960 -vpp_comp_dst_h 540 -ext_allocator -infer::hp model
+-i::h264 content\2.h264 -dc::rgb4 -join -hw_d3d11 -async 4  -timeout 3600 -o::sink -vpp_comp_dst_x 960 -vpp_comp_dst_y 540 -vpp_comp_dst_w 960 -vpp_comp_dst_h 540 -ext_allocator -infer::hp model
+
+-vpp_comp_only 4 -w 1920 -h 1080 -async 4 -join -hw_d3d11 -i::source -ext_allocator
+
