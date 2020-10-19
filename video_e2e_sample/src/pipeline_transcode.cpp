@@ -50,8 +50,6 @@ or https://software.intel.com/en-us/media-client-solutions-support.
 
 using namespace TranscodingSample;
 using namespace std;
-#define DENOISELEVEL_2 2
-
 
 #ifdef ENABLE_MCTF
 namespace TranscodingSample
@@ -120,7 +118,9 @@ sInputParams::sInputParams() : __sInputParams()
 
     InferType = MediaInferenceManager::InferTypeNone;
     InferOffline = false;
+    bDropDecOutput = false;
     InferDevType = MediaInferenceManager::InferDeviceGPU;
+    InferMaxObjNum = -1; //-1 means no limitation
 }
 
 CTranscodingPipeline::CTranscodingPipeline():
@@ -291,8 +291,12 @@ CTranscodingPipeline::CTranscodingPipeline():
     m_bROIasQPMAP = false;
     m_bExtMBQP = false;
     mInferType = MediaInferenceManager::InferTypeNone;
+    mInferMaxObjNum = -1;
+    mInferInterval = 6;
     mInferOffline = false;
     mInferDevType = MediaInferenceManager::InferDeviceGPU;
+    m_decOutW = 300;
+    m_decOutH = 300;
 } //CTranscodingPipeline::CTranscodingPipeline()
 
 CTranscodingPipeline::~CTranscodingPipeline()
@@ -445,19 +449,19 @@ mfxStatus CTranscodingPipeline::VPPPreInit(sInputParams *pParams)
         if ( (m_mfxDecParams.mfx.FrameInfo.CropW != pParams->nDstWidth && pParams->nDstWidth) ||
              (m_mfxDecParams.mfx.FrameInfo.CropH != pParams->nDstHeight && pParams->nDstHeight) ||
              (pParams->bEnableDeinterlacing) || (pParams->DenoiseLevel!=-1) || (pParams->DetailLevel!=-1) || (pParams->FRCAlgorithm) ||
-             (bVppCompInitRequire) || (pParams->fieldProcessingMode) || (pParams->DecodeColor == MFX_FOURCC_RGB4) ||
+             (bVppCompInitRequire) || (pParams->fieldProcessingMode) ||
 #ifdef ENABLE_MCTF
             (VPP_FILTER_DISABLED != pParams->mctfParam.mode) ||
 #endif
-             (pParams->EncoderFourCC && decoderFourCC && pParams->EncoderFourCC != decoderFourCC && m_bEncodeEnable))
+            (pParams->EncoderFourCC && decoderFourCC && pParams->EncoderFourCC != decoderFourCC && m_bEncodeEnable) ||
+            (pParams->DecoderFourCC == MFX_FOURCC_RGB4 && m_bDecodeEnable && pParams->EncodeId != MFX_CODEC_JPEG))
         {
             if (m_bIsFieldWeaving || m_bIsFieldSplitting)
             {
                 msdk_printf(MSDK_STRING("ERROR: Field weaving or Field Splitting is enabled according to streams parameters. Other VPP filters cannot be used in this mode, please remove corresponding options.\n"));
                 return MFX_ERR_UNSUPPORTED;
             }
-            /* using the Denoise pipeline to do the NV12 convert to RGB4*/
-            pParams->DenoiseLevel = DENOISELEVEL_2;
+            // enable VPP in decode pipeline with EU, when color is RGB4
             m_bIsVpp = true;
         }
 
@@ -975,11 +979,6 @@ mfxStatus CTranscodingPipeline::Decode()
     chrono::high_resolution_clock::time_point fps_time1, fps_time2;
     chrono::duration<double> fps_diff;
     int frame_num = 0;
-    int infer_interval = 0;
-    if (mInferType != MediaInferenceManager::InferTypeNone)
-    {
-        infer_interval = mInferMnger.GetInferInterval();
-    }
 #endif
 
     {
@@ -1242,7 +1241,7 @@ mfxStatus CTranscodingPipeline::Decode()
                 && (mInferType != MediaInferenceManager::InferTypeNone))
 	{
              /* Run inference every infer_interval frame */
-             bool runInfer = !(m_nProcessedFramesNum % infer_interval);
+             bool runInfer = !(m_nProcessedFramesNum % mInferInterval);
              if (runInfer)
              {
                    mInferMnger.RunInfer(pData, mInferOffline);
@@ -1292,7 +1291,7 @@ mfxStatus CTranscodingPipeline::Decode()
             break;
         }
 
-        msdk_tick nFrameTime = msdk_time_get_tick() - nBeginTime;
+        msdk_tick nFrameTime = (msdk_time_get_tick() - nBeginTime)/10;
         if (nFrameTime < m_nReqFrameTime)
         {
             MSDK_USLEEP((mfxU32)(m_nReqFrameTime - nFrameTime));
@@ -1411,15 +1410,19 @@ mfxStatus CTranscodingPipeline::Encode()
     MSDKThread * pDeliverThread = NULL;
     MSDKThread * pDeliverThread1 = NULL;
 
-    m_pDeliverOutputSemaphore = new MSDKSemaphore(sts);
-    m_pDeliveredEvent = new MSDKEvent(sts, false, false);
-    pDeliverThread1 = new MSDKThread(sts, DeliverThreadFunc, this);
-    pDeliverThread = new MSDKThread(sts, DeliverThreadFunc1, this);
-    if (!pDeliverThread || !m_pDeliverOutputSemaphore || !m_pDeliveredEvent) {
-        MSDK_SAFE_DELETE(pDeliverThread);
-        MSDK_SAFE_DELETE(m_pDeliverOutputSemaphore);
-        MSDK_SAFE_DELETE(m_pDeliveredEvent);
-        return MFX_ERR_MEMORY_ALLOC;
+
+    if (((m_nVPPCompEnable == VppCompOnly) || (m_nVPPCompEnable == VppCompOnlyEncode)) 
+	    && (NULL_RENDER_VPP_COMP != m_vppCompDumpRenderMode)) {
+         m_pDeliverOutputSemaphore = new MSDKSemaphore(sts);
+         m_pDeliveredEvent = new MSDKEvent(sts, false, false);
+         pDeliverThread1 = new MSDKThread(sts, DeliverThreadFunc, this);
+         pDeliverThread = new MSDKThread(sts, DeliverThreadFunc1, this);
+         if (!pDeliverThread || !m_pDeliverOutputSemaphore || !m_pDeliveredEvent) {
+             MSDK_SAFE_DELETE(pDeliverThread);
+             MSDK_SAFE_DELETE(m_pDeliverOutputSemaphore);
+             MSDK_SAFE_DELETE(m_pDeliveredEvent);
+             return MFX_ERR_MEMORY_ALLOC;
+         }
     }
     m_error = MFX_ERR_NONE;
     m_bStopDeliverLoop = false;
@@ -1545,9 +1548,8 @@ mfxStatus CTranscodingPipeline::Encode()
                     MSDK_CHECK_RESULT(sts, MFX_ERR_NONE, sts);
                 }
                 /* Rendering may be explicitly disabled for performance measurements */
-                if (NULL_RENDER_VPP_COMP != m_vppCompDumpRenderMode)
-                {
-
+                if (((m_nVPPCompEnable == VppCompOnly) || (m_nVPPCompEnable == VppCompOnlyEncode)) 
+			&& (NULL_RENDER_VPP_COMP != m_vppCompDumpRenderMode)) {
 #if defined(_WIN32) || defined(_WIN64)
 
                 m_FramePool.push_back(VppExtSurface.pSurface);
@@ -1752,6 +1754,74 @@ mfxStatus CTranscodingPipeline::Encode()
     return sts;
 
 } // mfxStatus CTranscodingPipeline::Encode()
+
+mfxStatus CTranscodingPipeline::DummyFakeSink()
+{
+    mfxStatus sts = MFX_ERR_NONE;
+    ExtendedSurface DecExtSurface = {};
+    bool isQuit = false;
+    SafetySurfaceBuffer   *curBuffer = m_pBuffer;
+
+    while (MFX_ERR_NONE == sts ||  MFX_ERR_MORE_DATA == sts)
+    {
+        msdk_tick nBeginTime = msdk_time_get_tick(); // microseconds
+        // Getting next frame
+        while (MFX_ERR_MORE_SURFACE == curBuffer->GetSurface(DecExtSurface))
+        {
+             if (MFX_ERR_NONE != curBuffer->WaitForSurfaceInsertion(MSDK_SURFACE_WAIT_INTERVAL)) {
+                msdk_printf(MSDK_STRING("ERROR: timed out waiting surface from upstream component\n"));
+                return MFX_ERR_NOT_FOUND;
+             }
+        }
+
+        curBuffer->ReleaseSurface(DecExtSurface.pSurface);
+        if (curBuffer->m_pNext != NULL && m_nVPPCompEnable > 0)
+        {
+            curBuffer = curBuffer->m_pNext;
+        }
+        else
+        {
+            curBuffer = m_pBuffer;
+        }
+
+        MSDK_CHECK_STATUS(sts, "Unexpected error!!");
+
+        // Count only real surfaces
+        if (DecExtSurface.pSurface)
+        {
+            m_nProcessedFramesNum++;
+        }
+        else
+        {
+            isQuit = true;
+            break;
+        }
+
+        msdk_tick nFrameTime = msdk_time_get_tick() - nBeginTime;
+        if (nFrameTime < m_nReqFrameTime)
+        {
+            MSDK_USLEEP((mfxU32)(m_nReqFrameTime - nFrameTime));
+        }
+    }
+    MSDK_IGNORE_MFX_STS(sts, MFX_ERR_MORE_DATA);
+
+    // Clean up decoder buffers to avoid locking them (if some decoder still have some data to decode, but does not have enough surfaces)
+    // we have to clean up all buffers (all of them have data from decoders)
+    for(SafetySurfaceBuffer * buf = m_pBuffer;buf!=NULL; buf=buf->m_pNext)
+    {
+        while (buf->GetSurface(DecExtSurface)!=MFX_ERR_MORE_SURFACE)
+        {
+             buf->ReleaseSurface(DecExtSurface.pSurface);
+             buf->CancelBuffering();
+ 
+        }
+    }
+    
+    if (MFX_ERR_NONE == sts)
+        sts = MFX_WRN_VALUE_NOT_CHANGED;
+    return sts;
+
+} // mfxStatus CTranscodingPipeline::FakeSink()
 
 #if MFX_VERSION >= 1022
 void CTranscodingPipeline::FillMBQPBuffer(mfxExtMBQP &qpMap, mfxU16 pictStruct)
@@ -2205,8 +2275,11 @@ mfxStatus CTranscodingPipeline::PutBS()
         outputStatistics.StartTimeMeasurement();
     }
 
-    sts = m_pBSProcessor->ProcessOutputBitstream(&pBitstreamEx->Bitstream);
-    MSDK_CHECK_STATUS(sts, "m_pBSProcessor->ProcessOutputBitstream failed");
+    if (!m_bDropDecOutput)
+    {
+        sts = m_pBSProcessor->ProcessOutputBitstream(&pBitstreamEx->Bitstream);
+        MSDK_CHECK_STATUS(sts, "m_pBSProcessor->ProcessOutputBitstream failed");
+    }
 
     UnPreEncAuxBuffer(pBitstreamEx->pCtrl);
 
@@ -2251,6 +2324,9 @@ mfxStatus CTranscodingPipeline::Surface2BS(ExtendedSurface* pSurf,mfxBitstream* 
         HandlePossibleGpuHang(sts);
         MSDK_CHECK_ERR_NONE_STATUS(sts, MFX_ERR_ABORTED, "SyncOperation failed");
         pSurf->Syncp=0;
+
+        if (m_bDropDecOutput)
+            return MFX_ERR_NONE;
 
         //--- Copying data from surface to bitstream
         sts = m_pMFXAllocator->Lock(m_pMFXAllocator->pthis,pSurf->pSurface->Data.MemId,&pSurf->pSurface->Data);
@@ -2549,7 +2625,8 @@ mfxStatus CTranscodingPipeline::InitDecMfxParams(sInputParams *pInParams)
     }
 
     //--- Force setting fourcc type if required
-    if(pInParams->DecoderFourCC)
+    //video decoding doesn't support MFX_FOURCC_RGB4 as output
+    if(pInParams->DecoderFourCC && ((pInParams->DecoderFourCC != MFX_FOURCC_RGB4) || (pInParams->DecodeId == MFX_CODEC_JPEG)))
     {
         m_mfxDecParams.mfx.FrameInfo.FourCC=pInParams->DecoderFourCC;
         m_mfxDecParams.mfx.FrameInfo.ChromaFormat=FourCCToChroma(pInParams->DecoderFourCC);
@@ -3207,15 +3284,27 @@ mfxStatus CTranscodingPipeline::AddLaStreams(mfxU16 width, mfxU16 height)
     {
         m_mfxVppParams.vpp.Out.FourCC = pInParams->EncoderFourCC;
         m_mfxVppParams.vpp.Out.ChromaFormat = FourCCToChroma(pInParams->EncoderFourCC);
-
-        if (pInParams->DecodeColor == MFX_FOURCC_RGB4) {
-             m_mfxVppParams.vpp.Out.Width = MSDK_ALIGN16(pInParams->nVppCompDstW);
-             m_mfxVppParams.vpp.Out.Height = MSDK_ALIGN16(pInParams->nVppCompDstH);
-             m_mfxVppParams.vpp.Out.CropX = 0;
-             m_mfxVppParams.vpp.Out.CropY = 0;
-             m_mfxVppParams.vpp.Out.CropW = pInParams->nVppCompDstW;
-             m_mfxVppParams.vpp.Out.CropH = pInParams->nVppCompDstH;
+    }
+    //Set VPP parameters for decoding session
+    if (pInParams->DecoderFourCC == MFX_FOURCC_RGB4)
+    {
+        m_mfxVppParams.vpp.Out.FourCC = pInParams->DecoderFourCC;
+        m_mfxVppParams.vpp.Out.ChromaFormat = FourCCToChroma(pInParams->DecoderFourCC);
+        m_mfxVppParams.vpp.Out.BitDepthLuma = m_mfxVppParams.vpp.Out.BitDepthChroma = 8;
+        if (pInParams->nVppCompDstH)
+        {
+            m_mfxVppParams.vpp.Out.CropH = pInParams->nVppCompDstH;
+            m_mfxVppParams.vpp.Out.Height = MSDK_ALIGN16(pInParams->nVppCompDstH);
         }
+
+        if (pInParams->nVppCompDstW)
+        {
+            m_mfxVppParams.vpp.Out.CropW = pInParams->nVppCompDstW;
+            m_mfxVppParams.vpp.Out.Width = MSDK_ALIGN16(pInParams->nVppCompDstW);
+        }
+
+        m_decOutW = pInParams->nVppCompDstW;
+        m_decOutH = pInParams->nVppCompDstH;
     }
 
     /* VPP Comp Init */
@@ -3473,7 +3562,7 @@ mfxStatus CTranscodingPipeline::AllocFrames()
         }
 
         // Do not correct anything if we're using raw output - we'll need those surfaces for storing data for writer
-        if(m_mfxEncParams.mfx.CodecId != MFX_CODEC_DUMP)
+        if(m_bEncodeEnable && m_mfxEncParams.mfx.CodecId != MFX_CODEC_DUMP)
         {
            // In case of rendering enabled we need to add 1 additional surface for renderer
            if((m_nVPPCompEnable == VppCompOnly) || (m_nVPPCompEnable == VppCompOnlyEncode))
@@ -3812,6 +3901,7 @@ mfxStatus CTranscodingPipeline::Init(sInputParams *pParams,
     m_FrameNumberPreference = pParams->FrameNumberPreference;
     m_numEncoders = 0;
     m_bUseOverlay = pParams->DecodeId == MFX_CODEC_RGB4 ? true : false;
+    m_bDropDecOutput = pParams->bDropDecOutput;
     m_bRobustFlag = pParams->bRobustFlag;
     m_bSoftGpuHangRecovery = pParams->bSoftRobustFlag;
     m_nRotationAngle = pParams->nRotationAngle;
@@ -3852,6 +3942,11 @@ mfxStatus CTranscodingPipeline::Init(sInputParams *pParams,
     if ((pParams->statisticsLogFile || !pParams->DumpLogFileName.empty()) &&
         0 == statisticsWindowSize)
         statisticsWindowSize = m_MaxFramesForTranscode;
+
+    if (FakeSink == pParams->eModeExt)
+    {
+        m_bEncodeEnable = false;
+    }
 
     if (m_bEncodeEnable)
     {
@@ -3896,7 +3991,7 @@ mfxStatus CTranscodingPipeline::Init(sInputParams *pParams,
         return MFX_ERR_UNSUPPORTED;
     }
 
-    if ((VppComp == pParams->eModeExt) || (VppCompOnly == pParams->eModeExt))
+    if ((VppComp == pParams->eModeExt) || (VppCompOnly == pParams->eModeExt) || FakeSink == pParams->eModeExt)
     {
         if(m_nVPPCompEnable != VppCompOnlyEncode)
             m_nVPPCompEnable = pParams->eModeExt;
@@ -4042,11 +4137,31 @@ mfxStatus CTranscodingPipeline::Init(sInputParams *pParams,
     mInferType = pParams->InferType;
     mInferOffline = pParams->InferOffline;
     mInferDevType = pParams->InferDevType;
+    mInferMaxObjNum = pParams->InferMaxObjNum;
+    if (pParams->InferInterval > 0)
+    {
+        mInferInterval = pParams->InferInterval;
+    } else 
+    {
+        switch (mInferType)
+        {
+            case MediaInferenceManager::InferTypeVADetect:
+                mInferInterval = 1;
+                break;
+            case MediaInferenceManager::InferTypeFaceDetection:
+            case MediaInferenceManager::InferTypeHumanPoseEst:
+                mInferInterval = 6;
+                break;
+            default:
+                break;
+        }
+    }
+
     msdk_opt_read(pParams->strIRFileDir, mStrIRFileDir);
     if (mInferType != MediaInferenceManager::InferTypeNone)
     {
         if ( 0 != mInferMnger.Init(m_mfxVppParams.vpp.Out.CropW, m_mfxVppParams.vpp.Out.CropH,
-             mInferType, (msdk_char *)mStrIRFileDir, mInferDevType))
+             mInferType, (msdk_char *)mStrIRFileDir, mInferDevType, mInferMaxObjNum))
 	{
             NoMoreFramesSignal();
             return MFX_ERR_UNKNOWN;
@@ -4745,6 +4860,12 @@ mfxStatus CTranscodingPipeline::Run()
     {
         sts = Encode();
         ss << MSDK_STRING("CTranscodingPipeline::Run::Encode() [") << GetSessionText() << MSDK_STRING("] failed");
+        MSDK_CHECK_STATUS(sts, ss.str());
+    }
+    else if (m_nVPPCompEnable == FakeSink)
+    {
+        sts = DummyFakeSink();
+        ss << MSDK_STRING("CTranscodingPipeline::Run::FakeSink() [") << GetSessionText() << MSDK_STRING("] failed");
         MSDK_CHECK_STATUS(sts, ss.str());
     }
     else

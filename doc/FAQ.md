@@ -19,3 +19,5 @@ face-detection-retail-0004, human-pose-estimation-0001, vehicle-attributes-recog
 ## Can I use other OpenVINO version rather than 2020.2?
 Yes, but you have to modify some code due to interfaces changing. And also you need to download the IR files and copy them to ./model manually. Please refer to script/download_and_copy_models.sh for how to download the IR files.
  
+## How to fix the compile error for "LoadLibrary" function?
+There is a issue for OpenVINO 2020.2 which is not compatible with #define UNICODE. you can fix it by put on the patch patch\win_shared_object_loader_h.patch in OpenVINO folder's win_shared_object_loader.h file.

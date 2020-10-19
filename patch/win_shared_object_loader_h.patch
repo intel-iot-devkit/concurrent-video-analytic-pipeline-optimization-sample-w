@@ -1,0 +1,19 @@
+diff --git a\C:\Program Files (x86)\IntelSWTools\openvino\deployment_tools\inference_engine\include\details\os\win_shared_object_loader.h b\C:\Program Files (x86)\IntelSWTools\openvino\deployment_tools\inference_engine\include\details\os\win_shared_object_loader.h
+index 99ab390..061cf46 100644
+--- a\C:\Program Files (x86)\IntelSWTools\openvino\deployment_tools\inference_engine\include\details\os\win_shared_object_loader.h
++++ b\C:\Program Files (x86)\IntelSWTools\openvino\deployment_tools\inference_engine\include\details\os\win_shared_object_loader.h
+@@ -69,8 +69,13 @@ public:
+ 
+     explicit SharedObjectLoader(LPCSTR pluginName) {
+         ExcludeCurrentDirectory();
+-
++#ifdef UNICODE
++	wchar_t wstr[1024];
++	std::mbstowcs(wstr, (const char *)pluginName, 1024);
++       shared_object = LoadLibrary(wstr);
++#else
+ 	shared_object = LoadLibrary(pluginName);
++#endif
+         if (!shared_object) {
+             char cwd[1024];
+             THROW_IE_EXCEPTION << "Cannot load library '" << pluginName << "': " << GetLastError()

@@ -321,7 +321,7 @@ void FileAndRTSPBitstreamReader::RtspPacketReader(FileAndRTSPBitstreamReader  *c
 			}
 			else
 			{
-				ret == 0;
+				ret = 0;
 				continue;
 			}
 

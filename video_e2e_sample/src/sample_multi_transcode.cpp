@@ -334,7 +334,8 @@ mfxStatus Launcher::Init(int argc, msdk_char *argv[])
         {
             /* N_to_1 mode */
             if ((VppComp == m_InputParamsArray[i].eModeExt) ||
-                (VppCompOnly == m_InputParamsArray[i].eModeExt))
+                (VppCompOnly == m_InputParamsArray[i].eModeExt) ||
+                (FakeSink == m_InputParamsArray[i].eModeExt))
             {
                 pBuffer = m_pBufferArray[m_pBufferArray.size() - 1];
             }
@@ -1084,7 +1085,7 @@ int set_up_thread_argv(int argc, char *argv[], int par_file_num, char ***argv_po
 			else
 			{
 				//Completed processing par file options
-				found = true;
+				found = false;
 				thread_argv_idx++;
 			}
 		}

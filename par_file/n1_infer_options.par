@@ -1,0 +1,2 @@
+-i::h264 content\car.h264 -dc::rgb4 -join -hw_d3d11 -async 4 -o::sink -vpp_comp_dst_x 0 -vpp_comp_dst_y 0 -vpp_comp_dst_w 1920 -vpp_comp_dst_h 1080 -ext_allocator -infer::vd ./model -fps 30 -infer::interval 3 -infer::max_detect 1
+-vpp_comp 1 -w 1920 -h 1080 -async 4 -join -hw_d3d11  -threads 3 -i::source -ext_allocator -ec::nv12 -o::h264 vd_1080p.h264 -b 8000 -fps 30
