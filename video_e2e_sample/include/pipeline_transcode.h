@@ -99,7 +99,8 @@ namespace TranscodingSample
         Source,            // means that pipeline makes vpp + encode and get data from shared buffer
         VppComp,           // means that pipeline makes vpp composition + encode and get data from shared buffer
         VppCompOnly,       // means that pipeline makes vpp composition and get data from shared buffer
-        VppCompOnlyEncode  // means that pipeline makes vpp composition + encode and get data from shared buffer
+        VppCompOnlyEncode,  // means that pipeline makes vpp composition + encode and get data from shared buffer
+        FakeSink           // means that pipeline get data from share buffer and do nothing. 
     };
 
     enum VppCompDumpMode
@@ -199,6 +200,8 @@ namespace TranscodingSample
         mfxU32 EncodeId; // type of output coded video
         mfxU32 DecodeId; // type of input coded video
 
+        bool bDropDecOutput; // only works with o::raw when the file name is /dev/null
+
         msdk_char  strSrcFile[MSDK_MAX_FILENAME_LEN]; // source bitstream file
         msdk_char  strDstFile[MSDK_MAX_FILENAME_LEN]; // destination bitstream file
         msdk_char  strDumpVppCompFile[MSDK_MAX_FILENAME_LEN]; // VPP composition output dump file
@@ -207,7 +210,9 @@ namespace TranscodingSample
 #if OVINO
         int InferType; //if > 0, will run inference after decoding
         bool InferOffline; // Default false. If true, the results won't be rendered
-        MediaInferenceManager::InferDeviceType InferDevType;
+        MediaInferenceManager::InferDeviceType InferDevType; //Target inference device
+        int InferMaxObjNum; // The maximum number of detected objects for classification
+        int InferInterval; //The distance of two inferenced frames
         msdk_char strIRFileDir[MSDK_MAX_FILENAME_LEN]; // directory that contains IR files and label file
         char  strRtspSaveFile[MSDK_MAX_FILENAME_LEN]; // save rtsp to local file
 #endif
@@ -315,7 +320,6 @@ namespace TranscodingSample
         mfxU16 nVppCompSrcH;
         mfxU16 nVppCompTileId;
 
-        mfxU32 DecodeColor;
         mfxU32 DecoderFourCC;
         mfxU32 EncoderFourCC;
 
@@ -704,6 +708,7 @@ namespace TranscodingSample
         virtual mfxStatus Decode();
         virtual mfxStatus Encode();
         virtual mfxStatus Transcode();
+        virtual mfxStatus DummyFakeSink();
         virtual mfxStatus DecodeOneFrame(ExtendedSurface *pExtSurface);
         virtual mfxStatus DecodeLastFrame(ExtendedSurface *pExtSurface);
         virtual mfxStatus VPPOneFrame(ExtendedSurface *pSurfaceIn, ExtendedSurface *pExtSurface);
@@ -862,6 +867,7 @@ namespace TranscodingSample
         mfxU32                         m_nTimeout;
         bool                           m_bUseOverlay;
 
+        bool                           m_bDropDecOutput; // only works with o::raw when the file name is /dev/null
         bool                           m_bROIasQPMAP;
         bool                           m_bExtMBQP;
         // various external buffers
@@ -1001,9 +1007,14 @@ namespace TranscodingSample
 #if OVINO
         int mInferType; //if > 0, will run inference after decoding
         int mInferOffline; // If true, the results won't be rendered
+        int mInferMaxObjNum;  // The maximum number of detected objects for classification
+        int mInferInterval; // The distance between two inferenced frame
         MediaInferenceManager::InferDeviceType mInferDevType;
         msdk_char mStrIRFileDir[MSDK_MAX_FILENAME_LEN]; // directory that contains IR files and label file
         MediaInferenceManager mInferMnger;
+        int m_decOutW;  //The width of SFC or VPP output
+        int m_decOutH;  //The height of SFC or VPP output
+
 #endif
     private:
         DISALLOW_COPY_AND_ASSIGN(CTranscodingPipeline);

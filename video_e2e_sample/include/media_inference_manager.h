@@ -34,8 +34,7 @@ public:
     MediaInferenceManager();
     ~MediaInferenceManager();
     enum InferDeviceType {InferDeviceGPU, InferDeviceCPU, InferDeviceHDDL };
-    int Init(int dec_w, int dec_h, int infer_type, msdk_char *model_dir, enum InferDeviceType device);
-    int GetInferInterval();
+    int Init(int dec_w, int dec_h, int infer_type, msdk_char *model_dir, enum InferDeviceType device, int maxObjNum);
     /* If inferOffline is true, the results won't be render to input surface */
     int RunInfer(mfxFrameData *data, bool inferOffline);
     int RenderRepeatLast(mfxFrameData *data);
@@ -67,6 +66,7 @@ private:
     int mInputW;
     int mInputH;
     int mBatchId;
+    int mMaxObjNum;
     std::string mTargetDevice;
 
     int mInferInterval;

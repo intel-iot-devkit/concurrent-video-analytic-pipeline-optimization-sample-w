@@ -35,7 +35,8 @@ using namespace std;
 MediaInferenceManager::MediaInferenceManager():
     mInferType(0),
     mInferInterval(5),
-    mTargetDevice("GPU")
+    mTargetDevice("GPU"),
+    mMaxObjNum(-1)
 {
     mInit = false;
 }
@@ -50,12 +51,14 @@ MediaInferenceManager::~MediaInferenceManager()
     mVehicleDetector = nullptr;
 }
 
-int MediaInferenceManager::Init(int dec_w, int dec_h, int infer_type, msdk_char *model_dir, enum InferDeviceType device)
+int MediaInferenceManager::Init(int dec_w, int dec_h, int infer_type,
+	msdk_char *model_dir, enum InferDeviceType device, int maxObjNum)
 {
     int ret = 0;
     mInferType = infer_type;
     mDecW = dec_w;
     mDecH = dec_h;
+    mMaxObjNum = maxObjNum;
 
     switch(device)
     {
@@ -287,7 +290,7 @@ int MediaInferenceManager::RunInferVDVA(mfxFrameData *pData, bool inferOffline)
 	time1 = chrono::high_resolution_clock::now();
 #endif	
 
-	mVehicleDetector->Detect(frame, mVDResults);
+	mVehicleDetector->Detect(frame, mVDResults, mMaxObjNum);
 
 #if VERBOSE_LOG
 	time2 = chrono::high_resolution_clock::now();
@@ -307,16 +310,11 @@ int MediaInferenceManager::RunInferVDVA(mfxFrameData *pData, bool inferOffline)
 
 	return 0;
 }
-int MediaInferenceManager::GetInferInterval()
-{
-    return mInferInterval;
-}
 
 int MediaInferenceManager::InitHumanPose(msdk_char *model_dir)
 {
 	mInputW = 456;
 	mInputH = 256;
-	mInferInterval = 5;
 	std::string ir_file;
 	fstream file;
 
@@ -367,7 +365,6 @@ int MediaInferenceManager::InitFaceDetection(msdk_char *model_dir)
 	int len_model_dir = msdk_strlen(model_dir);
 	fstream file;
  
-	mInferInterval = 5;
 	mInputW = 300;
 	mInputH = 300;
 
@@ -413,11 +410,9 @@ int MediaInferenceManager::InitVehicleDetect(msdk_char *model_dir)
 #ifdef VD_LPD_MODEL
 	mInputW = 300;
 	mInputH = 300;
-	mInferInterval = 1;
 #else
 	mInputW = 672;
 	mInputH = 384;
-	mInferInterval = 2;
 #endif
 
 	fstream file_vd;
