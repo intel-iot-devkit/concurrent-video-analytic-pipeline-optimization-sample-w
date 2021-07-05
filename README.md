@@ -12,7 +12,7 @@ Sample par files can be found in par_files directory. Verfied on i7-8559U. Perfo
 * Multi-display support with multi par file, eg : video_e2e_sample -par ..\par_file\n4_1080p_fd.par ..\par_file\n4_1080p_vd.par
 
 # Dependencies
-The sample application depends on [Intel® Media SDK](https://software.intel.com/en-us/media-sdk/), [Intel® OpenVINO™](https://software.intel.com/en-us/openvino-toolkit) and [FFmpeg](https://www.ffmpeg.org/)
+The sample application depends on [Intel® Media SDK](https://software.intel.com/en-us/media-sdk/), [Intel® OpenVINO™](https://software.intel.com/en-us/openvino-toolkit) and [FFmpeg](https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-full-shared.7z)
 
 # FAQ
 See doc/FAQ.md
@@ -30,7 +30,7 @@ See doc/FAQ.md
 The sample application is licensed under MIT license. See [LICENSE](./video_e2e_sample/LICENSE) for details.
 
 # Documentation
-See [user guide](./doc/concurrent_video_analytic_sample_application_user_guide_2020.1.0.pdf)
+See [user guide](./doc/concurrent_video_analytic_sample_application_user_guide.pdf)
 
 # System requirements
 
@@ -38,11 +38,11 @@ See [user guide](./doc/concurrent_video_analytic_sample_application_user_guide_2
 Windows 10 Enterprise
 
 **Software:**
-* [MediaSDK 2019 R1](https://software.intel.com/en-us/media-sdk/)
-* [OpenVINO™ 2020.2](https://software.intel.com/en-us/openvino-toolkit)
+* [MediaSDK 2020 R1](https://software.intel.com/en-us/media-sdk/)
+* [OpenVINO™ 2021.3](https://software.intel.com/en-us/openvino-toolkit)
 
 **Hardware:** 
-* Intel® platforms including Core™ or Atom™ processors which supported by the MediaSDK 2019 R1 and OpenVINO 2020.2. 
+* Intel® platforms including Core™ or Atom™ processors which supported by the MediaSDK 2020 R1 and OpenVINO 2021.3. 
 * For Media SDK, the major platform dependency comes from the Intel GPU driver.
 * For OpenVINO™, see details from here: https://software.intel.com/en-us/openvino-toolkit/documentation/system-requirements
 
@@ -50,14 +50,13 @@ Windows 10 Enterprise
 
 Run .\script\compile.bat to build sample application video_e2e_sample. 
 
-Please refer to ”Installation Guide“ in [user guide](./doc/concurrent_video_analytic_sample_application_user_guide_2020.1.0.pdf) for details.
+Please refer to ”Installation Guide“ in [user guide](./doc/concurrent_video_analytic_sample_application_user_guide.pdf) for details.
 
 # How to run demo
 
 Before this, you should download the IR file by the .\script\download_IR_file.py to .\video_e2e_sample\model\ folder
-Replace the video clips in par file. Such as download face detection demo video from https://github.com/intel-iot-devkit/sample-videos/blob/master/classroom.mp4, and convert it to element stream(currently, this sample application only support element stream) by below command:
-ffmpeg -i classroom.mp4 -c:v libx264 -an -bsf:v h264_mp4toannexb -r 30 -g 60 -b:v 4000k -bf 0 classroom.h264
-and use above video clips to replace the file location in .\par_file\*.par, (-i::h264 content\4.h264)
+Replace the video clips in par file. Such as download face detection demo video from https://github.com/elainewangprc/testvideo/ with 1080p.h264, 
+and use above video clips to replace the file location in .\par_file\*.par, (-i::h264 content\1080p.h264)
 The run: cd .\script\ ;  Run_FD_test.bat
 
 # Known limitations
