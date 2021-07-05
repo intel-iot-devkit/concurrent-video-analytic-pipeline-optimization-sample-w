@@ -53,7 +53,6 @@ private:
     InferenceEngine::CNNNetwork network;
     InferenceEngine::ExecutableNetwork executableNetwork;
     InferenceEngine::InferRequest request;
-    InferenceEngine::CNNNetReader netReader;
     std::string pafsBlobName;
     std::string heatmapsBlobName;
     bool enablePerformanceReport;

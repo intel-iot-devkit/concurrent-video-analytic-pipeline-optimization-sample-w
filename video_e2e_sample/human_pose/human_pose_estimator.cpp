@@ -36,10 +36,8 @@ HumanPoseEstimator::HumanPoseEstimator(const std::string& modelPath,
         ie.SetConfig({{InferenceEngine::PluginConfigParams::KEY_PERF_COUNT,
                        InferenceEngine::PluginConfigParams::YES}});
     }
-    netReader.ReadNetwork(modelPath);
-    std::string binFileName = fileNameNoExt(modelPath) + ".bin";
-    netReader.ReadWeights(binFileName);
-    network = netReader.getNetwork();
+	InferenceEngine::Core ie;
+	network = ie.ReadNetwork(modelPath); 
     InferenceEngine::InputInfo::Ptr inputInfo = network.getInputsInfo().begin()->second;
     inputLayerSize = cv::Size(inputInfo->getTensorDesc().getDims()[3], inputInfo->getTensorDesc().getDims()[2]);
     inputInfo->setPrecision(InferenceEngine::Precision::U8);

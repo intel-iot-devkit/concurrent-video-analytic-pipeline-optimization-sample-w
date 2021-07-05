@@ -56,12 +56,10 @@ private:
 
 	static std::mutex mInitLock;
 	float mDetectThreshold;
-	// InferenceEngine::InferencePlugin mPlugin;
 	InferenceEngine::Core ie;
 	InferenceEngine::CNNNetwork mDetectorNetwork;
 	InferenceEngine::ExecutableNetwork mVDExecutableNetwork;
 	InferenceEngine::InferRequest mDetectorRequest;
-	InferenceEngine::CNNNetReader mDetectorNetReader;
 	cv::Size mSrcImageSize;
 	bool mEnablePerformanceReport;
 	std::string input_name_;

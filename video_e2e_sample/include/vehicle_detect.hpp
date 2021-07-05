@@ -36,7 +36,6 @@ private:
     InferenceEngine::CNNNetwork mDetectorNetwork;
     InferenceEngine::ExecutableNetwork mVDExecutableNetwork;
     InferenceEngine::InferRequest mDetectorRequest;
-    InferenceEngine::CNNNetReader mDetectorNetReader;
     int mDetectorMaxProposalCount;
     int mDetectorObjectSize;
     std::string mDetectorRoiBlobName;
@@ -48,7 +47,6 @@ private:
     InferenceEngine::CNNNetwork mVANetwork;
     InferenceEngine::ExecutableNetwork mVAExecutableNetwork;
     InferenceEngine::InferRequest mVARequest;
-    InferenceEngine::CNNNetReader mVANetReader;
     std::string mVAOutputNameForColor;  // color is the first output
     std::string mVAOutputNameForType;  // type is the second output
     static const std::string mVAColors[];
