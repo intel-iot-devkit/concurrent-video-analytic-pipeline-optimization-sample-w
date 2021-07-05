@@ -159,7 +159,6 @@ int MediaInferenceManager::RenderRepeatLastFD(mfxFrameData *pData)
 
 int MediaInferenceManager::RenderRepeatLastHP(mfxFrameData *pData)
 {
-    //std::cout << "MediaInferenceManager::RenderRepeatLastHP " << mDecH << "  " << mDecW << std::endl;
     if (mPoses.size() > 0) {
         Mat frameRGB4(mDecH, mDecW, CV_8UC4, (unsigned char *)pData->B);
         renderHumanPose(mPoses, frameRGB4);
@@ -326,7 +325,7 @@ int MediaInferenceManager::InitHumanPose(msdk_char *model_dir)
 	full_path[0] = _T('\0');
 	lstrcat(full_path, model_dir);
 	lstrcat(full_path, xml_file);
-
+	
 	MSDK_FOPEN(modelFile, full_path, MSDK_STRING("r"));
  	if (NULL != modelFile)
 	{
@@ -374,7 +373,6 @@ int MediaInferenceManager::InitFaceDetection(msdk_char *model_dir)
 	lstrcat(full_path, xml_file);
 
 	MSDK_FOPEN(modelFile, full_path, MSDK_STRING("r"));
-
 	if (NULL != modelFile)
 	{
 		int iLength = WideCharToMultiByte(CP_ACP, 0, full_path, -1, NULL, 0, NULL, NULL);
@@ -396,7 +394,6 @@ int MediaInferenceManager::InitFaceDetection(msdk_char *model_dir)
 		delete[]full_path;
 		file.close();
 	}
-
 	mFaceDetector = new FaceDetect(false);
 	mFaceDetector->SetSrcImageSize(mDecW, mDecH);
 	mFaceDetector->Init(fd_model_path, mTargetDevice);
@@ -500,7 +497,7 @@ int MediaInferenceManager::InitVehicleDetect(msdk_char *model_dir)
 	mVehicleDetector = new VehicleDetect(false);
 	mVehicleDetector->Init(ir_file_vd, ir_file_va, mTargetDevice);
 	mVehicleDetector->SetSrcImageSize(mDecW, mDecH);
-	//std::cout << ir_file_vd << std::endl;
+
 	return 0;
 }
 void MediaInferenceManager::raw_dumper_nv12(const char *name, int w, int h, int pitch, unsigned char *y, unsigned char *uv)

@@ -33,15 +33,8 @@ or https://software.intel.com/en-us/media-client-solutions-support.
 
 struct D3DAllocatorParams;
 
+#ifdef _MSC_VER
 #pragma warning(disable: 4127) // constant expression
-
-// Extensions for internal use, normally these macros are blank
-#ifdef MOD_SMT
-#include "extension_macros.h"
-#else
-#define MOD_SMT_CREATE_PIPELINE
-#define MOD_SMT_PRINT_HELP
-#define MOD_SMT_PARSE_INPUT
 #endif
 
 #ifndef MFX_VERSION

@@ -24,7 +24,8 @@ or https://software.intel.com/en-us/media-client-solutions-support.
 
 #include "mfxplugin.h"
 #include "mfxplugin++.h"
-
+#include "media_inference_manager.h"
+#include "file_and_rtsp_bitstream_reader.h"
 #include <memory>
 #include <vector>
 #include <list>
@@ -53,14 +54,10 @@ or https://software.intel.com/en-us/media-client-solutions-support.
 #include "sample_defs.h"
 #include "plugin_utils.h"
 #include "preset_manager.h"
-#include "media_inference_manager.h"
-#include "file_and_rtsp_bitstream_reader.h"
+
 #if (MFX_VERSION >= 1024)
 #include "brc_routines.h"
 #endif
-
-#define OVINO 1
-#include "vpp_ext_buffers_storage.h"
 
 #define TIME_STATS 1 // Enable statistics processing
 #include "time_statistics.h"
@@ -77,6 +74,7 @@ or https://software.intel.com/en-us/media-client-solutions-support.
     #define MSDK_OCL_ROTATE_PLUGIN  MSDK_STRING("libsample_plugin_opencl.so")
 #endif
 
+#define OVINO 1
 #define MAX_PREF_LEN    256
 
 #ifndef MFX_VERSION
@@ -84,14 +82,12 @@ or https://software.intel.com/en-us/media-client-solutions-support.
 #endif
 
 #ifdef ENABLE_MCTF
-const mfxU16  MAX_NUM_OF_ATTACHED_BUFFERS_FOR_IN_SUFACE = 2;
 const mfxU16  MCTF_MID_FILTER_STRENGTH = 10;
 const mfxF64  MCTF_LOSSLESS_BPP = 0.0;
 #endif
 
 namespace TranscodingSample
 {
-    extern mfxU32 MFX_STDCALL TranscodeRoutine(void   *pObj);
     enum PipelineMode
     {
         Native = 0,        // means that pipeline is based depends on the cmd parameters (decode/encode/transcode)
@@ -100,7 +96,7 @@ namespace TranscodingSample
         VppComp,           // means that pipeline makes vpp composition + encode and get data from shared buffer
         VppCompOnly,       // means that pipeline makes vpp composition and get data from shared buffer
         VppCompOnlyEncode,  // means that pipeline makes vpp composition + encode and get data from shared buffer
-        FakeSink           // means that pipeline get data from share buffer and do nothing. 
+		FakeSink           // means that pipeline get data from share buffer and do nothing.
     };
 
     enum VppCompDumpMode
@@ -141,12 +137,6 @@ namespace TranscodingSample
     // that can be changed in run-time;
     struct sMctfRunTimeParam
     {
-#ifdef ENABLE_MCTF_EXT
-#if 0
-        mfxU32 BitsPerPixelx100k;
-        mfxU16 Deblock;
-#endif
-#endif
         mfxU16 FilterStrength;
     };
 
@@ -192,6 +182,14 @@ namespace TranscodingSample
         mfxPriority  priority;
         // common parameters
         mfxIMPL libType;  // Type of used mediaSDK library
+#if defined(LINUX32) || defined(LINUX64)
+        std::string strDevicePath;
+#endif
+#if (defined(_WIN32) || defined(_WIN64)) && (MFX_VERSION >= 1031)
+        //Adapter type
+        bool bPrefferiGfx;
+        bool bPrefferdGfx;
+#endif
         bool   bIsPerf;   // special performance mode. Use pre-allocated bitstreams, output
         mfxU16 nThreadsNum; // number of internal session threads number
         bool bRobustFlag;   // Robust transcoding mode. Allows auto-recovery after hardware errors
@@ -200,7 +198,7 @@ namespace TranscodingSample
         mfxU32 EncodeId; // type of output coded video
         mfxU32 DecodeId; // type of input coded video
 
-        bool bDropDecOutput; // only works with o::raw when the file name is /dev/null
+		bool bDropDecOutput; // only works with o::raw when the file name is /dev/null
 
         msdk_char  strSrcFile[MSDK_MAX_FILENAME_LEN]; // source bitstream file
         msdk_char  strDstFile[MSDK_MAX_FILENAME_LEN]; // destination bitstream file
@@ -215,7 +213,9 @@ namespace TranscodingSample
         int InferInterval; //The distance of two inferenced frames
         msdk_char strIRFileDir[MSDK_MAX_FILENAME_LEN]; // directory that contains IR files and label file
         char  strRtspSaveFile[MSDK_MAX_FILENAME_LEN]; // save rtsp to local file
+
 #endif
+
         // specific encode parameters
         mfxU16 nTargetUsage;
         mfxF64 dDecoderFrameRateOverride;
@@ -299,6 +299,10 @@ namespace TranscodingSample
         mfxU16 nQPP;
         mfxU16 nQPB;
         bool bDisableQPOffset;
+        mfxU16 QVBRQuality;
+        mfxU16 ICQQuality;
+        mfxU16 Convergence;
+        mfxU16 Accuracy;
 
         mfxU16 nAvcTemp;
         mfxU16 nBaseLayerPID;
@@ -349,6 +353,8 @@ namespace TranscodingSample
 
         mfxU32 nMaxFrameSize;
 
+        mfxU16 BitrateLimit;
+
 #if (MFX_VERSION >= 1025)
         mfxU16 numMFEFrames;
         mfxU16 MFMode;
@@ -375,7 +381,7 @@ namespace TranscodingSample
     {
         sInputParams();
         msdk_string DumpLogFileName;
-        HWND hwnd;
+		HWND hwnd;
 #if MFX_VERSION >= 1022
         std::vector<mfxExtEncoderROI> m_ROIData;
 
@@ -405,14 +411,10 @@ namespace TranscodingSample
 
     struct ExtendedBS
     {
-        ExtendedBS(): IsFree(true), Syncp(NULL), pCtrl(NULL)
-        {
-            MSDK_ZERO_MEMORY(Bitstream);
-        };
-        bool IsFree;
-        mfxBitstream Bitstream;
-        mfxSyncPoint Syncp;
-        PreEncAuxBuffer* pCtrl;
+        bool IsFree = true;
+        mfxBitstreamWrapper Bitstream;
+        mfxSyncPoint Syncp = nullptr;
+        PreEncAuxBuffer* pCtrl = nullptr;
     };
 
     class CIOStat : public CTimeStatistics
@@ -519,8 +521,6 @@ namespace TranscodingSample
         }
         virtual ~ExtendedBSStore()
         {
-            for (mfxU32 i=0; i < m_pExtBS.size(); i++)
-                MSDK_SAFE_DELETE_ARRAY(m_pExtBS[i].Bitstream.Data);
             m_pExtBS.clear();
 
         }
@@ -609,59 +609,34 @@ namespace TranscodingSample
         DISALLOW_COPY_AND_ASSIGN(SafetySurfaceBuffer);
     };
 
-    struct CPipelineStatistics
-    {
-        CPipelineStatistics() :
-            m_input_count(0),
-            m_output_count(0),
-            m_synced_count(0),
-            m_tick_overall(0),
-            m_tick_fread(0),
-            m_tick_fwrite(0),
-            m_timer_overall(m_tick_overall)
-        {
-        }
-        virtual ~CPipelineStatistics() {}
-        mfxU32 m_input_count;     // number of received incoming packets (frames or bitstreams)
-        mfxU32 m_output_count;    // number of delivered outgoing packets (frames or bitstreams)
-        mfxU32 m_synced_count;
-        msdk_tick m_tick_overall; // overall time passed during processing
-        msdk_tick m_tick_fread;   // part of tick_overall: time spent to receive incoming data
-        msdk_tick m_tick_fwrite;  // part of tick_overall: time spent to deliver outgoing data
-        CAutoTimer m_timer_overall; // timer which corresponds to m_tick_overall
-    private:
-        CPipelineStatistics(const CPipelineStatistics&);
-        void operator=(const CPipelineStatistics&);
-    };
-
     class FileBitstreamProcessor
     {
     public:
         FileBitstreamProcessor();
         virtual ~FileBitstreamProcessor();
         //virtual mfxStatus SetReader(std::unique_ptr<CSmplBitstreamReader>& reader);
-        virtual mfxStatus SetReader(std::unique_ptr<FileAndRTSPBitstreamReader>& reader);
+		virtual mfxStatus SetReader(std::unique_ptr<FileAndRTSPBitstreamReader>& reader);
         virtual mfxStatus SetReader(std::unique_ptr<CSmplYUVReader>& reader);
         virtual mfxStatus SetWriter(std::unique_ptr<CSmplBitstreamWriter>& writer);
-        virtual mfxStatus GetInputBitstream(mfxBitstream **pBitstream);
+        virtual mfxStatus GetInputBitstream(mfxBitstreamWrapper **pBitstream);
         virtual mfxStatus GetInputFrame(mfxFrameSurface1 *pSurface);
-        virtual mfxStatus ProcessOutputBitstream(mfxBitstream* pBitstream);
+        virtual mfxStatus ProcessOutputBitstream(mfxBitstreamWrapper* pBitstream);
         virtual mfxStatus ResetInput();
         virtual mfxStatus ResetOutput();
 
     protected:
-       // std::unique_ptr<CSmplBitstreamReader> m_pFileReader;
-        std::unique_ptr<FileAndRTSPBitstreamReader> m_pFileReader;
+        //std::unique_ptr<CSmplBitstreamReader> m_pFileReader;
+		std::unique_ptr<FileAndRTSPBitstreamReader> m_pFileReader;
         std::unique_ptr<CSmplYUVReader> m_pYUVFileReader;
         // for performance options can be zero
         std::unique_ptr<CSmplBitstreamWriter> m_pFileWriter;
-        mfxBitstream m_Bitstream;
+        mfxBitstreamWrapper m_Bitstream;
     private:
         DISALLOW_COPY_AND_ASSIGN(FileBitstreamProcessor);
     };
 
     // Bitstream is external via BitstreamProcessor
-    class CTranscodingPipeline : public CPipelineStatistics
+    class CTranscodingPipeline
     {
     public:
         CTranscodingPipeline();
@@ -692,7 +667,6 @@ namespace TranscodingSample
         inline void SetPipelineID(mfxU32 id){m_nID = id;}
         void StopSession();
         bool IsOverlayUsed();
-
         size_t GetRobustFlag();
 
         msdk_string GetSessionText()
@@ -702,31 +676,46 @@ namespace TranscodingSample
 
             return ss.str();
         }
+#if (defined(_WIN32) || defined(_WIN64)) && (MFX_VERSION >= 1031)
+        //Adapter type
+        void SetPrefferiGfx(bool prefferiGfx) { bPrefferiGfx = prefferiGfx; };
+        void SetPrefferdGfx(bool prefferdGfx) { bPrefferdGfx = prefferdGfx; };
+        bool IsPrefferiGfx() { return bPrefferiGfx; };
+        bool IsPrefferdGfx() { return bPrefferdGfx; };
+#endif
     protected:
         virtual mfxStatus CheckRequiredAPIVersion(mfxVersion& version, sInputParams *pParams);
 
         virtual mfxStatus Decode();
         virtual mfxStatus Encode();
         virtual mfxStatus Transcode();
-        virtual mfxStatus DummyFakeSink();
+		virtual mfxStatus DummyFakeSink();
         virtual mfxStatus DecodeOneFrame(ExtendedSurface *pExtSurface);
         virtual mfxStatus DecodeLastFrame(ExtendedSurface *pExtSurface);
         virtual mfxStatus VPPOneFrame(ExtendedSurface *pSurfaceIn, ExtendedSurface *pExtSurface);
-        virtual mfxStatus EncodeOneFrame(ExtendedSurface *pExtSurface, mfxBitstream *pBS);
+        virtual mfxStatus EncodeOneFrame(ExtendedSurface *pExtSurface, mfxBitstreamWrapper *pBS);
         virtual mfxStatus PreEncOneFrame(ExtendedSurface *pInSurface, ExtendedSurface *pOutSurface);
 
         virtual mfxStatus DecodePreInit(sInputParams *pParams);
         virtual mfxStatus VPPPreInit(sInputParams *pParams);
         virtual mfxStatus EncodePreInit(sInputParams *pParams);
         virtual mfxStatus PreEncPreInit(sInputParams *pParams);
-        static unsigned int MFX_STDCALL DeliverThreadFunc(void* ctx);
-        static unsigned int MFX_STDCALL DeliverThreadFunc1(void* ctx);
-        mfxStatus DeliverLoop(CTranscodingPipeline* pipeline);
-
+		static unsigned int MFX_STDCALL DeliverThreadFunc(void* ctx);
+		static unsigned int MFX_STDCALL DeliverThreadFunc1(void* ctx);
+		mfxStatus DeliverLoop(CTranscodingPipeline* pipeline);
         mfxVideoParam GetDecodeParam();
-        mfxExtOpaqueSurfaceAlloc GetDecOpaqueAlloc() const { return m_pmfxVPP.get() ? m_VppOpaqueAlloc: m_DecOpaqueAlloc; };
 
-        mfxExtMVCSeqDesc GetDecMVCSeqDesc() const {return m_MVCSeqDesc;}
+        mfxExtOpaqueSurfaceAlloc GetDecOpaqueAlloc()
+        {
+            mfxExtOpaqueSurfaceAlloc* opaq = m_pmfxVPP ? m_mfxVppParams : m_mfxDecParams;
+            return opaq ? *opaq : mfxExtOpaqueSurfaceAlloc();
+        };
+
+        mfxExtMVCSeqDesc GetDecMVCSeqDesc()
+        {
+            mfxExtMVCSeqDesc* mvc = m_mfxDecParams;
+            return mvc ? *mvc : mfxExtMVCSeqDesc();
+        }
 
         static void ModifyParamsUsingPresets(sInputParams& params, mfxF64 fps, mfxU32 width, mfxU32 height);
 
@@ -766,15 +755,15 @@ namespace TranscodingSample
         void FreeVppDoNotUse();
         void FreeMVCSeqDesc();
 
-        mfxStatus AllocateSufficientBuffer(mfxBitstream* pBS);
+        mfxStatus AllocateSufficientBuffer(mfxBitstreamWrapper* pBS);
         mfxStatus PutBS();
 
         mfxStatus DumpSurface2File(mfxFrameSurface1* pSurface);
-        mfxStatus Surface2BS(ExtendedSurface* pSurf,mfxBitstream* pBS, mfxU32 fourCC);
-        mfxStatus NV12toBS(mfxFrameSurface1* pSurface,mfxBitstream* pBS);
-        mfxStatus NV12asI420toBS(mfxFrameSurface1* pSurface, mfxBitstream* pBS);
-        mfxStatus RGB4toBS(mfxFrameSurface1* pSurface,mfxBitstream* pBS);
-        mfxStatus YUY2toBS(mfxFrameSurface1* pSurface,mfxBitstream* pBS);
+        mfxStatus Surface2BS(ExtendedSurface* pSurf,mfxBitstreamWrapper* pBS, mfxU32 fourCC);
+        mfxStatus NV12toBS(mfxFrameSurface1* pSurface,mfxBitstreamWrapper* pBS);
+        mfxStatus NV12asI420toBS(mfxFrameSurface1* pSurface, mfxBitstreamWrapper* pBS);
+        mfxStatus RGB4toBS(mfxFrameSurface1* pSurface,mfxBitstreamWrapper* pBS);
+        mfxStatus YUY2toBS(mfxFrameSurface1* pSurface,mfxBitstreamWrapper* pBS);
 
         void NoMoreFramesSignal();
         mfxStatus AddLaStreams(mfxU16 width, mfxU16 height);
@@ -790,7 +779,7 @@ namespace TranscodingSample
         mfxStatus   SetAllocatorAndHandleIfRequired();
         mfxStatus   LoadGenericPlugin();
 
-        mfxBitstream        *m_pmfxBS;  // contains encoded input data
+        mfxBitstreamWrapper *m_pmfxBS;  // contains encoded input data
 
         mfxVersion m_Version; // real API version with which library is initialized
 
@@ -820,15 +809,23 @@ namespace TranscodingSample
         mfxU32                          m_vppCompDumpRenderMode;
 
 #if defined(_WIN32) || defined(_WIN64)
-        typedef std::list<mfxFrameSurface1*>       MList;
-        MList  m_FramePool;
-        CDecodeD3DRender*               m_hwdev4Rendering;
-        MSDKSemaphore*          m_pDeliverOutputSemaphore; // to access to DeliverOutput method
-        MSDKEvent*              m_pDeliveredEvent; // to signal when output surfaces will be processed
-        mfxStatus               m_error; // error returned by DeliverOutput method
-        bool                    m_bStopDeliverLoop;
-        sInputParams *g_pParams;
-        HWND hwnd;
+      //  CDecodeD3DRender*               m_hwdev4Rendering;
+		typedef std::list<mfxFrameSurface1*>       MList;
+		MList  m_FramePool;
+		CDecodeD3DRender*               m_hwdev4Rendering;
+		MSDKSemaphore * m_pDeliverOutputSemaphore; // to access to DeliverOutput method
+		MSDKEvent * m_pDeliveredEvent; // to signal when output surfaces will be processed
+		mfxStatus               m_error; // error returned by DeliverOutput method
+		bool                    m_bStopDeliverLoop;
+		mfxU32 m_input_count;     // number of received incoming packets (frames or bitstreams)
+		mfxU32 m_output_count;    // number of delivered outgoing packets (frames or bitstreams)
+		mfxU32 m_synced_count;
+		msdk_tick m_tick_overall; // overall time passed during processing
+		msdk_tick m_tick_fread;   // part of tick_overall: time spent to receive incoming data
+		msdk_tick m_tick_fwrite;  // part of tick_overall: time spent to deliver outgoing data
+		CAutoTimer m_timer_overall; // timer which corresponds to m_tick_overall
+		sInputParams * g_pParams;
+		HWND hwnd;
 #else
         CHWDevice*                      m_hwdev4Rendering;
 #endif
@@ -846,84 +843,36 @@ namespace TranscodingSample
         typedef std::list<ExtendedBS*>       BSList;
         BSList  m_BSPool;
 
-        mfxInitParam                   m_initPar;
-        mfxExtThreadsParam             m_threadsPar;
+        mfxInitParamlWrap              m_initPar;
 
         volatile bool                  m_bForceStop;
 
         sPluginParams                  m_decoderPluginParams;
         sPluginParams                  m_encoderPluginParams;
 
-        mfxVideoParam                  m_mfxDecParams;
-        mfxVideoParam                  m_mfxEncParams;
-        mfxVideoParam                  m_mfxVppParams;
-        mfxVideoParam                  m_mfxPluginParams;
+        MfxVideoParamsWrapper          m_mfxDecParams;
+        MfxVideoParamsWrapper          m_mfxEncParams;
+        MfxVideoParamsWrapper          m_mfxVppParams;
+        MfxVideoParamsWrapper          m_mfxPluginParams;
         bool                           m_bIsVpp; // true if there's VPP in the pipeline
         bool                           m_bIsFieldWeaving;
         bool                           m_bIsFieldSplitting;
         bool                           m_bIsPlugin; //true if there's Plugin in the pipeline
         RotateParam                    m_RotateParam;
-        mfxVideoParam                  m_mfxPreEncParams;
+        MfxVideoParamsWrapper          m_mfxPreEncParams;
         mfxU32                         m_nTimeout;
         bool                           m_bUseOverlay;
 
-        bool                           m_bDropDecOutput; // only works with o::raw when the file name is /dev/null
+		bool                           m_bDropDecOutput; // only works with o::raw when the file name is /dev/null
         bool                           m_bROIasQPMAP;
         bool                           m_bExtMBQP;
         // various external buffers
-        // for disabling VPP algorithms
-        mfxExtVPPDoNotUse m_VppDoNotUse;
-        // for MVC decoder and encoder configuration
-        mfxExtMVCSeqDesc m_MVCSeqDesc;
         bool m_bOwnMVCSeqDescMemory; // true if the pipeline owns memory allocated for MVCSeqDesc structure fields
 
-        mfxExtVPPComposite       m_VppCompParams;
-#if MFX_VERSION >= 1022
-        mfxExtDecVideoProcessing m_decPostProcessing;
-#endif //MFX_VERSION >= 1022
-
-        mfxExtAvcTemporalLayers  m_AvcTemporalLayers;
-        mfxExtCodingOptionSPSPPS m_CodingOptionSPSPPS;
-        mfxExtCodingOption       m_CodingOption;
-
-        mfxExtLAControl          m_ExtLAControl;
-        // for setting MaxSliceSize
-        mfxExtCodingOption2      m_CodingOption2;
-
-        mfxExtCodingOption3      m_CodingOption3;
-
-        // HEVC
-        mfxExtHEVCParam          m_ExtHEVCParam;
-        mfxExtHEVCTiles          m_ExtHEVCTiles;
-#if (MFX_VERSION >= 1026)
-        // VP9
-        mfxExtVP9Param           m_ExtVP9Param;
-#endif
-
-#if (MFX_VERSION >= 1024)
-        mfxExtBRC                m_ExtBRC;
-#endif
-
-#if (MFX_VERSION >= 1025)
-        // MFE mode and number of frames
-        mfxExtMultiFrameParam    m_ExtMFEParam;
-        // here we pass general timeout per session.
-        mfxExtMultiFrameControl  m_ExtMFEControl;
-#endif
-
-        // for opaque memory
-        mfxExtOpaqueSurfaceAlloc m_EncOpaqueAlloc;
-        mfxExtOpaqueSurfaceAlloc m_VppOpaqueAlloc;
-        mfxExtOpaqueSurfaceAlloc m_DecOpaqueAlloc;
-        mfxExtOpaqueSurfaceAlloc m_PluginOpaqueAlloc;
-        mfxExtOpaqueSurfaceAlloc m_PreEncOpaqueAlloc;
-
-        // external parameters for each component are stored in a vector
-        CVPPExtBuffersStorage        m_VppExtParamsStorage;
-        std::vector<mfxExtBuffer*> m_EncExtParams;
-        std::vector<mfxExtBuffer*> m_DecExtParams;
-        std::vector<mfxExtBuffer*> m_PluginExtParams;
-        std::vector<mfxExtBuffer*> m_PreEncExtParams;
+        // to enable to-do list
+        // number of video enhancement filters (denoise, procamp, detail, video_analysis, multi_view, ste, istab, tcc, ace, svc)
+        constexpr static uint32_t ENH_FILTERS_COUNT = 20;
+        mfxU32                       m_tabDoUseAlg[ENH_FILTERS_COUNT];
 
         mfxU32         m_nID;
         mfxU16         m_AsyncDepth;
@@ -1004,16 +953,24 @@ namespace TranscodingSample
 #ifdef  ENABLE_MCTF
         sMctfRunTimeParams   m_MctfRTParams;
 #endif
+
+
+
+#if (defined(_WIN32) || defined(_WIN64)) && (MFX_VERSION >= 1031)
+        //Adapter type
+        bool bPrefferiGfx;
+        bool bPrefferdGfx;
+#endif
 #if OVINO
-        int mInferType; //if > 0, will run inference after decoding
-        int mInferOffline; // If true, the results won't be rendered
-        int mInferMaxObjNum;  // The maximum number of detected objects for classification
-        int mInferInterval; // The distance between two inferenced frame
-        MediaInferenceManager::InferDeviceType mInferDevType;
-        msdk_char mStrIRFileDir[MSDK_MAX_FILENAME_LEN]; // directory that contains IR files and label file
-        MediaInferenceManager mInferMnger;
-        int m_decOutW;  //The width of SFC or VPP output
-        int m_decOutH;  //The height of SFC or VPP output
+		int mInferType; //if > 0, will run inference after decoding
+		int mInferOffline; // If true, the results won't be rendered
+		int mInferMaxObjNum;  // The maximum number of detected objects for classification
+		int mInferInterval; // The distance between two inferenced frame
+		MediaInferenceManager::InferDeviceType mInferDevType;
+		msdk_char mStrIRFileDir[MSDK_MAX_FILENAME_LEN]; // directory that contains IR files and label file
+		MediaInferenceManager mInferMnger;
+		int m_decOutW;  //The width of SFC or VPP output
+		int m_decOutH;  //The height of SFC or VPP output
 
 #endif
     private:

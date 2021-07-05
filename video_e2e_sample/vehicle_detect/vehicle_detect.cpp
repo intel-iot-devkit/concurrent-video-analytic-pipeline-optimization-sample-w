@@ -30,13 +30,9 @@ void VehicleDetect::Init(const std::string& detectorModelPath,
 {
     static std::mutex initLock;
     std::lock_guard<std::mutex> lock(initLock);
-
-    //Load Vehicle Detector Network
-    mDetectorNetReader.ReadNetwork(detectorModelPath);
-    std::string binFileName = fileNameNoExt(detectorModelPath) + ".bin";
-	//std::cout << binFileName << std::endl;
-    mDetectorNetReader.ReadWeights(binFileName);
-    mDetectorNetwork = mDetectorNetReader.getNetwork();
+	InferenceEngine::Core ie;
+	InferenceEngine::Core ie1;
+	mDetectorNetwork = ie.ReadNetwork(detectorModelPath);
     InferenceEngine::InputInfo::Ptr inputInfo = mDetectorNetwork.getInputsInfo().begin()->second;
     inputInfo->setPrecision(Precision::U8);
 
@@ -55,11 +51,7 @@ void VehicleDetect::Init(const std::string& detectorModelPath,
 	mVDExecutableNetwork = ie.LoadNetwork(mDetectorNetwork, targetDeviceName);
     mDetectorRequest = mVDExecutableNetwork.CreateInferRequest();
 
-    //Load Vehicle Attribute Network
-    mVANetReader.ReadNetwork(vehicleAttribsModelPath);
-    binFileName = fileNameNoExt(vehicleAttribsModelPath) + ".bin";
-    mVANetReader.ReadWeights(binFileName);
-    mVANetwork = mVANetReader.getNetwork();
+	mVANetwork = ie1.ReadNetwork(vehicleAttribsModelPath);
     mVANetwork.setBatchSize(1);
     inputInfo = mVANetwork.getInputsInfo().begin()->second;
     inputInfo->setPrecision(Precision::U8);
@@ -70,7 +62,7 @@ void VehicleDetect::Init(const std::string& detectorModelPath,
     mVAOutputNameForColor = (outputBlobsIt++)->second->getName();  // color is the first output
     mVAOutputNameForType = (outputBlobsIt++)->second->getName();  // type is the second output
 
-	mVAExecutableNetwork = ie1.LoadNetwork(mVANetwork, "GPU");
+	mVAExecutableNetwork = ie1.LoadNetwork(mVANetwork, targetDeviceName);
     mVARequest = mVAExecutableNetwork.CreateInferRequest();
 }
 
